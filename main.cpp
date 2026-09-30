@@ -1,22 +1,40 @@
 #include <iostream>
 #include <vector>
+#include <array>
 #include <cmath>
 #include <string>
 #include <cctype>
 #include <algorithm>
 
 using std::vector;
+using std::array;
 using std::cout;
 using std::string;
 using std::endl;
 
-float position[3] = {0,0,0};//xyz
-vector<vector<float>> balls = {};
-float lastBallDist = -1;
-float indexenbr = -1; 
+// A position always has exactly three coordinates. std::array stores its
+// elements directly (unlike vector, it cannot grow or shrink), so it suits
+// fixed-size data such as one XYZ position.
+using Position = array<float, 3>;
+
+// getClosestBallInfo returns one compact snapshot with this fixed layout:
+// [distance, delta X, delta Y, delta Z, index in balls].
+// Keeping related values together means callers can find the nearest ball
+// once and reuse all of its data instead of rescanning the vector per value.
+using ClosestBallInfo = array<float, 5>;
+
+// Named offsets make the array's layout readable at each use site and avoid
+// scattering unexplained numeric subscripts such as closestBall[3].
+constexpr size_t DISTANCE_INDEX = 0;
+constexpr size_t DELTA_X_INDEX = 1;
+constexpr size_t DELTA_Y_INDEX = 2;
+constexpr size_t DELTA_Z_INDEX = 3;
+constexpr size_t BALL_INDEX = 4;
+
+Position position = {0, 0, 0};
+vector<Position> balls = {};
 //the shape of area is a sphere
 
-//Make it so the closest ball is stored, if no movement, use it
 //After that, the functions checking position need changing
 //Then you fix movement in the 3rd dimension
 //Lastly, autoGetBall needs to support 3 dimensions
@@ -32,116 +50,131 @@ float normalMovement = 1.0;
 const double PI = 3.1416;
 
 float placeBall(){
-    vector<float> ballPos = {position[0],position[1],position[2]};
-    balls.push_back(ballPos);
-    lastBallDist = 0;
-    indexenbr = balls.size();
+    // Both position and each entry in balls use the same three-coordinate
+    // type, so this copies the current XYZ position into the dynamic vector.
+    balls.push_back(position);
     return 1;
 }
 
-float distToBall(string code);
+// A declaration lets callers above the function use it before its definition.
+ClosestBallInfo getClosestBallInfo();
 
 float getBall(){
-    float output = distToBall("");//Direct distance/hypotenuse
-    float indexen = distToBall("ind");//Which ball
-    cout <<"Distance to ball: " <<output<<endl;
-    if (output<=5){
+    // Store the returned array locally: all values below refer to the same
+    // closest-ball search, and the vector is not searched again for its index.
+    const ClosestBallInfo closestBall = getClosestBallInfo();
+    const float distance = closestBall[DISTANCE_INDEX];
+    cout << "Distance to ball: " << distance << endl;
+    // A negative distance is the "no ball" sentinel. Check it before using
+    // the returned index, because an empty vector has no valid element to erase.
+    if (distance >= 0 && distance <= 5){
         cout << " Got Ball"<<endl;
-        balls[indexen] = balls.back();
+        // The lookup stores the vector index as a float to fit the all-float
+        // result array; convert it back before using it to index the vector.
+        const size_t ballIndex = static_cast<size_t>(closestBall[BALL_INDEX]);
+        balls[ballIndex] = balls.back();
         balls.pop_back();
     }
-    return output;
+    return distance;
 }
 
 float autoGetBall(){
+    const ClosestBallInfo closestBall = getClosestBallInfo();
+    // The lookup returns a negative distance when balls is empty. Returning
+    // here prevents using missing offsets or dividing by an invalid distance.
+    if (closestBall[DISTANCE_INDEX] < 0){
+        cout << "No balls available to collect." << endl;
+        return -1;
+    }
+
     string line;
     cout << "How many times to move to get to ball: ";
     std::getline(std::cin,line);
-    int steps = stoi(line);
+    const int steps = stoi(line);
+    // steps is the divisor used to calculate speed; zero or a negative value
+    // cannot describe a valid number of movements.
+    if (steps <= 0){
+        cout << "The number of steps must be greater than zero." << endl;
+        return -1;
+    }
     
-    //float hypotenuse = distToBall("");
-    int dy = distToBall("dy");
-    int dx = distToBall("dx");
-    int dz = distToBall("dz");
-    float hypotenuse = sqrt(dy*dy+dz*dz+dx*dx);
+    const float deltaY = closestBall[DELTA_Y_INDEX];
+    const float deltaX = closestBall[DELTA_X_INDEX];
+    const float deltaZ = closestBall[DELTA_Z_INDEX];
+    const float hypotenuse = sqrt(deltaY*deltaY+deltaZ*deltaZ+deltaX*deltaX);
+    // If all offsets are zero, the player is already at the target. Avoid
+    // dividing by this zero length while calculating the turn angle.
+    if (hypotenuse == 0){
+        cout << "Already at the closest ball." << endl;
+        return 0;
+    }
     
-    float speedReq = hypotenuse/steps;
-    int neededTurn;
+    const float requiredSpeed = hypotenuse/steps;
+    int requiredTurn;
     
-    cout << endl << "Dy, Dx, Dz " << dy<< ", "<<dx<< ", "<<dz;
+    cout << endl << "Dy, Dx, Dz " << deltaY << ", " << deltaX << ", " << deltaZ;
     
-    if (dy<0){//
-        int degree = std::asin(-dy/hypotenuse)*180/PI;
+    if (deltaY<0){//
+        int degree = std::asin(-deltaY/hypotenuse)*180/PI;
         cout << endl <<"degree: "<<degree<<"  ";
-        //int gegree = std::asin();
-        if (dx<0){//-dx -dy
-            int gegree = 180+degree;
-            neededTurn = gegree-xydirection;
+        if (deltaX<0){//-dx -dy
+            int targetDirection = 180+degree;
+            requiredTurn = targetDirection-xydirection;
         }else{//dx -dy
-            int gegree = 350-degree;
-            neededTurn = gegree-xydirection;
+            int targetDirection = 350-degree;
+            requiredTurn = targetDirection-xydirection;
         }
     }else{//positive player is below
-        int degree = std::asin(dy/hypotenuse)*180/PI;
-        //int degree1 = std::acos(dx/hypotenuse);
-        if (dx<0){//-dx dy
-            int gegree = 180-std::asin(dy/hypotenuse)*180/PI;
-            neededTurn = gegree-xydirection;
+        int degree = std::asin(deltaY/hypotenuse)*180/PI;
+        if (deltaX<0){//-dx dy
+            int targetDirection = 180-std::asin(deltaY/hypotenuse)*180/PI;
+            requiredTurn = targetDirection-xydirection;
         }else{//dx dy
-            neededTurn = degree-xydirection;
+            requiredTurn = degree-xydirection;
         }
     }   
     if (hypotenuse !=-1){
-        cout << endl << "To get to the closest ball, set speed to " << speedReq << " and turn " << neededTurn<<" 'it's "<<neededTurn/19<<endl;
+        cout << endl << "To get to the closest ball, set speed to " << requiredSpeed << " and turn " << requiredTurn<<" 'it's "<<requiredTurn/19<<endl;
     }
-    return neededTurn;
+    return requiredTurn;
 }
 
-float distToBall(string code){
-    cout << lastBallDist<< endl;
-    if (lastBallDist != -1){
-        if (code == ""){
-            return lastBallDist;    
-        }if(code == "ind"){
-            return indexenbr;
+ClosestBallInfo getClosestBallInfo(){
+    // A distance of -1 signals that no ball was found. The other sentinel
+    // values keep the whole result initialized until a candidate is selected.
+    ClosestBallInfo closestBall = {-1, -1, -1, -1, -1};
+    // INFINITY ensures the first real distance is smaller, including when
+    // there is exactly one ball or its distance is zero.
+    float shortestDistance = INFINITY;
+
+    // Calculate distance and offsets together for each ball. When a nearer
+    // ball is found, save all its values in one result; this is one O(n) scan.
+    for (size_t ballIndex = 0; ballIndex < balls.size(); ++ballIndex){
+        const float deltaX = balls[ballIndex][0] - position[0];
+        const float deltaY = balls[ballIndex][1] - position[1];
+        const float deltaZ = balls[ballIndex][2] - position[2];
+        const float distance = sqrt(deltaX*deltaX + deltaY*deltaY + deltaZ*deltaZ);
+
+        if (distance < shortestDistance){
+            shortestDistance = distance;
+            // Aggregate initialization fills the result in the documented
+            // order above, with an explicit conversion for the vector index.
+            closestBall = {
+                distance,
+                deltaX,
+                deltaY,
+                deltaZ,
+                static_cast<float>(ballIndex)
+            };
         }
     }
-    float px = position[0];
-    float py = position[1];
-    float pz = position[2];
-    float minDist = -1;
-    float index;
-    float dinbex;
-    int act_index;
-    for (size_t i=0;i<balls.size();i++){
-        float bx = balls[i][0];
-        float by = balls[i][1];
-        float bz = balls[i][2];
-        float dx = (bx-px);
-        float dy = (by-py);
-        float dz = (bz-pz);
-        float distance = sqrt(dx*dx+dy*dy+dz*dz);
-        if (distance<minDist){//How does this work, mindist -1
-            minDist = distance;
-            index = dy;
-            dinbex = dx;
-            act_index = i;
-        }
-    }//make an array and return the code'th value
-    if (code == "dy"){
-        return index;
-    }if(code =="dx"){
-        return dinbex;
-    }if(code=="ind"){
-        return act_index;
-    }else{
-        return minDist;
-    }
+
+    // Returning std::array by value gives the caller an independent,
+    // fixed-size copy of the result (small arrays like this are inexpensive).
+    return closestBall;
 }
 //Es gibt eine probleme mit der Bewegung. Es macht kein unterschied, ob der Winkel neunzig oder zweihundertsiebzig ist. Ich glaube, das liegt daran, dass wir den Winkel negativ gemacht haben.
 float move(){
-    lastBallDist = -1;
-    indexenbr = -1;
     float radi = -xydirection*PI/180;
     float gadi = -xzdirection*PI/180;
     float tBSqr = 1+(std::tan(radi))*(std::tan(radi));
@@ -274,7 +307,9 @@ int giveInfo(){
     cout << endl<< "xzdirection: "<< xzdirection<< " Degrees";
     cout << endl << "Speed: " << normalMovement;
     cout << endl << "Distance from origin: " << 0.01*round(100*getDistance());
-    cout << endl << "Distance to closest Ball: "<< distToBall(""); 
+    // This display only needs the distance, so it reads that field from the
+    // same result type used by getBall and autoGetBall.
+    cout << endl << "Distance to closest Ball: " << getClosestBallInfo()[DISTANCE_INDEX];
     cout<<endl<<"Number of balls: "<<balls.size()<<endl<< endl;
     return 0;
 }
