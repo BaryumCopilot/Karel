@@ -9,7 +9,7 @@
       "stopAtEntry": false,
       "externalConsole": true,
       "cwd": "c:/Users/B-Tap(BITS)/Documents/Karel",
-      "program": "c:/Users/B-Tap(BITS)/Documents/Karel/build/Debug/outDebug",
+      "program": "c:/Users/B-Tap(BITS)/Documents/Karel/main.exe",
       "MIMode": "gdb",
       "miDebuggerPath": "gdb",
       "setupCommands": [
